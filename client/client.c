@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <string.h>
+#include <ctype.h>
 #include "../libs/structures.h"
 
 int main(int argc, char const *argv[]) {
@@ -43,14 +44,32 @@ int main(int argc, char const *argv[]) {
         strcat(command, handshake.userName);
         printf("%s \n", command);
         system(command);
-        printf("chat closed!");
-    } else if (fork() == 0) {//maintain game
+        printf("chat closed!\n");
+    } else if (fork() == 0) { //maintain game
         GameMessage msg;
-        msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+        int response = 0;
+            msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
         printf("%s\n", msg.command);
-        scanf("%s", msg.command);
-        msg.type = GAME_CLIENT_TO_SERVER;
-        msgsnd(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, 0);
+        while (response != 2) {
+            if (response != 1) {
+                scanf("%s", msg.command);
+                msg.type = GAME_CLIENT_TO_SERVER;
+                msgsnd(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, 0);
+            }
+            msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+
+            if (isdigit(msg.command[0])) {
+                response = atoi(msg.command);
+                if (response == 1) {
+                    printf("Successfully added to room!\n");
+                } else if (response == 2) {
+                    printf("Game started!\n");
+                }
+            } else {
+                printf("%s\n", msg.command);
+            }
+        }
+
     } else {
         while (true) { //control server lifestyle
             int res = kill(serverPid, 0);
@@ -64,12 +83,5 @@ int main(int argc, char const *argv[]) {
             }
         }
     }
-
-
-
-    // if (fork() == 0) {
-    //
-    //   msgrcv(mainQueue, &msg, 512, 1, 0);
-    // }
     return 0;
 }

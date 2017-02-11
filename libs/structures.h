@@ -18,9 +18,10 @@
 #define MAX_PID_SIZE 10
 
 #define USER_NAME_LENGTH 50
-#define IN_GAME 2
-#define AWAITING 1
-#define DISCONNECTED 0
+#define PLAYER_IN_GAME 3
+#define PLAYER_AWAITING_FOR_PARTNER 2
+#define PLAYER_AWAITING_FOR_ROOM 1
+#define PLAYER_DISCONNECTED 0
 
 // Chat consts
 #define MESSAGE_CONTENT_SIZE 512
@@ -31,9 +32,9 @@
 #define LOBBY_SIZE 10
 #define LOBBY_STRUCTURE_KEY 665
 #define LOBBY_SEMAPHORE_KEY 665
-#define EMPTY 0
-#define PLAYER_AWAITING 1
-#define IN_GAME 2
+#define ROOM_EMPTY 0
+#define ROOM_PLAYER_AWAITING 1
+#define ROOM_IN_GAME 2
 
 // Game consts
 #define GAME_CLIENT_TO_SERVER 1
