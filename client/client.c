@@ -39,6 +39,8 @@ int main(int argc, char const *argv[]) {
         char command[80];
         strcat(command, "xterm -e ../../chat/chat ");
         strcat(command, CLIENT_PID_STRING);
+        strcat(command, " ");
+        strcat(command, handshake.userName);
         printf("%s \n", command);
         system(command);
 //        printf("welcome on chat! \n");
