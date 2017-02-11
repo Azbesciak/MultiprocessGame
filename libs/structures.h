@@ -39,6 +39,19 @@
 // Game consts
 #define GAME_CLIENT_TO_SERVER 1
 #define GAME_SERVER_TO_CLIENT 2
+#define GAME_MATRIX_SIZE 10
+#define GAME_ROOM_KEY_ADDER 50
+#define GAME_PLAYER_0_SIGN 'x'
+#define GAME_PLAYER_1_SIGN 'o'
+#define GAME_YOUR_TOUR 2
+#define GAME_MOVE_ACCEPTED 1
+#define GAME_MOVE_REJECTED 0
+
+typedef struct GameMatrix {
+    int sem;
+    int memKey;
+    char matrix[GAME_MATRIX_SIZE][GAME_MATRIX_SIZE];
+} GameMatrix;
 
 typedef struct Player {
     int pid;
