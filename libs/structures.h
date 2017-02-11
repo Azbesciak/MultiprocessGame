@@ -11,22 +11,33 @@
 #define PLAYERS_STRUCTURE_KEY 666
 #define PLAYERS_SEMAPHORE_KEY 666
 
-#define LOBBY_STRUCTURE_KEY 665
-#define LOBBY_SEMAPHORE_KEY 665
+
 #define SERVER_QUEUE_KEY 1234
 #define SERVER_INTERNAL_QUEUE_KEY 123
 #define MAX_PLAYER_AMOUNT 100
 #define MAX_PID_SIZE 10
-#define MESSAGE_CONTENT_SIZE 512
-#define CHAT_CLIENT_TO_SERVER 1
-#define CHAT_SERVER_TO_CLIENT 2
+
 #define USER_NAME_LENGTH 50
 #define IN_GAME 2
 #define AWAITING 1
 #define DISCONNECTED 0
+
+// Chat consts
+#define MESSAGE_CONTENT_SIZE 512
+#define CHAT_CLIENT_TO_SERVER 3
+#define CHAT_SERVER_TO_CLIENT 4
+
+// Lobby consts
 #define LOBBY_SIZE 10
+#define LOBBY_STRUCTURE_KEY 665
+#define LOBBY_SEMAPHORE_KEY 665
+#define EMPTY 0
+#define PLAYER_AWAITING 1
+#define IN_GAME 2
 
-
+// Game consts
+#define GAME_CLIENT_TO_SERVER 1
+#define GAME_SERVER_TO_CLIENT 2
 
 typedef struct Player {
     int pid;
@@ -52,11 +63,16 @@ typedef struct PlayersMemory {
     Player * players;
 } PlayersMemory;
 
-typedef struct Message {
+typedef struct GameMessage {
+    long type;
+    char command[MESSAGE_CONTENT_SIZE];
+} GameMessage;
+
+typedef struct ChatMessage {
     long type;
     char source[USER_NAME_LENGTH];
     char content[MESSAGE_CONTENT_SIZE];
-} Message;
+} ChatMessage;
 
 typedef struct InitialMessage {
     long type;

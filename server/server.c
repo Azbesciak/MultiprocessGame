@@ -14,7 +14,6 @@
 #include "../libs/structures.h"
 
 
-int playersCounter = 0;
 struct sembuf semaphore;
 
 void semaphoreOperation(int semId, short todo) {
@@ -26,6 +25,11 @@ PlayersMemory preparePlayersMemory() {
     PlayersMemory playersMemory;
     playersMemory.memKey = shmget(PLAYERS_STRUCTURE_KEY, sizeof(Player) * MAX_PLAYER_AMOUNT, IPC_CREAT | 0777);
     playersMemory.players = shmat(playersMemory.memKey, 0, 0);
+    for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
+        Player player;
+        player.state = DISCONNECTED;
+        playersMemory.players[i] = player;
+    }
     playersMemory.sem = semget(PLAYERS_SEMAPHORE_KEY, 1, IPC_CREAT | 0700);
     semctl(playersMemory.sem, 0, SETVAL, 1);
     return playersMemory;
@@ -35,9 +39,43 @@ Lobby prepareLobby() {
     Lobby lobby;
     lobby.memKey = shmget(LOBBY_STRUCTURE_KEY, sizeof(Room) * LOBBY_SIZE, IPC_CREAT | 0777);
     lobby.rooms = shmat(lobby.memKey, 0, 0);
+    for (int i = 0; i < LOBBY_SIZE; i++) {
+        Room room;
+        room.state = EMPTY;
+        lobby.rooms[i] = room;
+    }
     lobby.sem = semget(LOBBY_SEMAPHORE_KEY, 1, IPC_CREAT | 0777);
     semctl(lobby.sem, 0, SETVAL, 1);
     return lobby;
+}
+
+void prepareLobbyInitialMessage(Lobby lobby, GameMessage *message) {
+    message->type = GAME_SERVER_TO_CLIENT;
+    semaphoreOperation(lobby.sem, SEMAPHORE_DROP);
+    int freeRooms = LOBBY_SIZE;
+    strcpy(message->command, "available rooms: \n");
+    for (int i = 0; i < LOBBY_SIZE; i++) {
+        char roomIndexTemp[3];
+        sprintf(roomIndexTemp, "%d", i);
+        if (lobby.rooms[i].state == EMPTY) {
+            strcat(message->command, roomIndexTemp);
+            strcat(message->command, " - room empty");
+            strcat(message->command, "\n");
+        } else if (lobby.rooms[i].state == AWAITING) {
+            strcat(message->command, roomIndexTemp);
+            strcat(message->command, " - awaiting : ");
+            strcat(message->command, lobby.rooms[i].players[0].name);
+            strcat(message->command, "\n");
+        } else {
+            freeRooms--;
+        }
+    }
+    if (freeRooms == 0) {
+        strcat(message->command, "there is no available room!\n");
+    } else {
+        strcat(message->command, "choose room id:\n");
+    }
+    semaphoreOperation(lobby.sem, SEMAPHORE_RAISE);
 }
 
 void clearPlayersMemory(PlayersMemory memory) {
@@ -45,12 +83,7 @@ void clearPlayersMemory(PlayersMemory memory) {
     shmctl(memory.memKey, IPC_RMID, 0);
 }
 
-void initializeGlobals(PlayersMemory memory) {
-    for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
-        Player player;
-        memory.players[i] = player;
-        memory.players[i].state = DISCONNECTED;
-    }
+void initializeGlobals() {
     semaphore.sem_num = 0;
     semaphore.sem_flg = 0;
 }
@@ -65,56 +98,61 @@ void printAllAvailablePlayers(PlayersMemory memory) {
         }
     }
     semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
-    printf("counter: %d, should be %d \n", counter, playersCounter);
+    printf("counter: %d\n", counter);
 }
 
 void addPlayer(int pid, int userQueue, char *name, PlayersMemory memory) {
     semaphoreOperation(memory.sem, SEMAPHORE_DROP);
-    if (playersCounter < MAX_PLAYER_AMOUNT - 1) {
-        int i = 0;
-        while (i < MAX_PLAYER_AMOUNT && memory.players[i].state != DISCONNECTED) {
-            i++;
-        }
-        Player player;
-        player.pid = pid;
-        strcpy(player.name, name);
-        player.state = AWAITING;
-        player.queueId = userQueue;
-        memory.players[i] = player;
-        playersCounter++;
-    } else {
+    bool wasPlayerAdded = false;
+    for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
+        printf("%d\n", memory.players[i].state);
+       if (memory.players[i].state == DISCONNECTED) {
+           Player player;
+           player.pid = pid;
+           strcpy(player.name, name);
+           player.state = AWAITING;
+           player.queueId = userQueue;
+           memory.players[i] = player;
+           wasPlayerAdded = true;
+           break;
+       }
+    }
+    if (!wasPlayerAdded) {
         printf("Max player amount reached! Player not created");
+    } else {
+        printf("Player %s sucessfully added !", name);
     }
     semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
 }
 
 void removePlayer(int pid, PlayersMemory memory) {
     semaphoreOperation(memory.sem, SEMAPHORE_DROP);
-    if (playersCounter > 0) {
-        for (int i = 0; i < playersCounter; i++) {
+    bool wasFound = false;
+        for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
             if (memory.players[i].pid == pid) {
                 printf("Player %s left the game", memory.players[i].name);
                 memory.players[i].state = DISCONNECTED;
-                playersCounter--;
+                wasFound = true;
                 break;
             }
         }
-    } else {
-        printf("No players in game!");
+    if (!wasFound) {
+        printf("Player not found!\n");
     }
     semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
 }
 
-void sendMessageToAll(Message message, PlayersMemory memory) {
+void sendMessageToAll(ChatMessage message, PlayersMemory memory) {
     message.type = CHAT_SERVER_TO_CLIENT;
+    printf("TRY TO SEND!!\n");
+    semaphoreOperation(memory.sem, SEMAPHORE_DROP);
     for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
-        semaphoreOperation(memory.sem, SEMAPHORE_DROP);
         if (memory.players[i].state != DISCONNECTED) {
             printf("q %d t %s", memory.players[i].queueId, message.content);
             msgsnd(memory.players[i].queueId, &message, MESSAGE_CONTENT_SIZE, 0);
         }
-        semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
     }
+    semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
 }
 
 void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby lobby) {
@@ -129,12 +167,13 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
     ssize_t result;
     int maintainProcess = fork();
     if (maintainProcess == 0) {
-        Message internalChatMessage;
+        ChatMessage internalChatMessage;
         int internalChatQueue = msgget(SERVER_INTERNAL_QUEUE_KEY, IPC_CREAT | 0777);
         int chatProcess = fork();
         if (chatProcess == 0) {
             while (true) {
-                msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE, CHAT_CLIENT_TO_SERVER, 0);
+                msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, CHAT_CLIENT_TO_SERVER, 0);
+                printf("inside %s\n", internalChatMessage.content);
                 sendMessageToAll(internalChatMessage, playersMem);
             }
         } else {
@@ -159,19 +198,27 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
                         } else {
                             char *user = initialMessage.userName;
                             if (fork() == 0) {
-                                Message msg;
+                                ChatMessage msg;
                                 while (true) {
-                                    int res = msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE,
+                                    int res = msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
                                                      CHAT_CLIENT_TO_SERVER, 0);
                                     if (res == -1) {
-                                        printf("eeee");
+                                        perror("eee?");
+                                        sleep(1);
                                         msgctl(clientServerQueue, IPC_RMID, 0);
                                         return;
                                     } else {
                                         printf("message from %s : %s \n", user, msg.content);
-                                        msgsnd(internalChatQueue, &msg, MESSAGE_CONTENT_SIZE, 0);
+                                        msg.type = CHAT_CLIENT_TO_SERVER;
+                                        msgsnd(internalChatQueue, &msg, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, 0);
                                     }
                                 }
+                            } else if (fork() == 0) {
+                                GameMessage gameMessage;
+                                prepareLobbyInitialMessage(lobby, &gameMessage);
+//                                printf("%s\n", gameMessage.command);
+                                msgsnd(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+
                             } else {
                                 while (true) {
                                     int isAlive = kill(clientPid, 0);

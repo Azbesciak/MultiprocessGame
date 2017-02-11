@@ -7,7 +7,7 @@
 #include "../libs/structures.h"
 
 int main(int argc, char const *argv[]) {
-    Message chatMessage;
+    ChatMessage chatMessage;
     int CLIENT_PID = 1234;
     if (argc > 1) {
         printf("Podłączony do chatu nr %s \n", argv[1]);
@@ -26,12 +26,19 @@ int main(int argc, char const *argv[]) {
         while (true) {
             scanf("%[s\n]", chatMessage.content);
             fgets(chatMessage.content, sizeof(chatMessage.content), stdin);
-            msgsnd(clientServerQueue, &chatMessage, MESSAGE_CONTENT_SIZE, 0);
+            msgsnd(clientServerQueue, &chatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, 0);
         }
     } else {
+        int result;
         while (true) {
-            msgrcv(clientServerQueue, &chatMessage, MESSAGE_CONTENT_SIZE, CHAT_SERVER_TO_CLIENT, 0);
-            printf("%s : %s\n", chatMessage.source, chatMessage.content);
+            result = msgrcv(clientServerQueue, &chatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, CHAT_SERVER_TO_CLIENT, 0);
+            if (result == -1) {
+                printf("server connection lost!\n");
+                msgctl(clientServerQueue, IPC_RMID, 0);
+                return -1;
+            } else {
+                printf("%s : %s\n", chatMessage.source, chatMessage.content);
+            }
         }
     }
     return 0;
