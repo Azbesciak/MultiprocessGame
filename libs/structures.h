@@ -43,6 +43,7 @@
 #define GAME_ROOM_KEY_ADDER 50
 #define GAME_PLAYER_0_SIGN 'x'
 #define GAME_PLAYER_1_SIGN 'o'
+#define GAME_FINISHED 3
 #define GAME_YOUR_TOUR 2
 #define GAME_MOVE_ACCEPTED 1
 #define GAME_MOVE_REJECTED 0
@@ -50,7 +51,7 @@
 typedef struct GameMatrix {
     int sem;
     int memKey;
-    char matrix[GAME_MATRIX_SIZE][GAME_MATRIX_SIZE];
+    char *matrix;
 } GameMatrix;
 
 typedef struct Player {

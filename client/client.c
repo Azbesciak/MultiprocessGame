@@ -61,7 +61,7 @@ int main(int argc, char const *argv[]) {
         strcat(command, CLIENT_PID_STRING);
         strcat(command, " ");
         strcat(command, handshake.userName);
-        printf("%s \n", command);
+//        printf("%s \n", command);
         system(command);
         printf("chat closed!\n");
     } else if (fork() == 0) { //maintain game
@@ -113,7 +113,7 @@ void printGameState(GameMatrix * matrix) {
     semaphoreOperation(matrix->sem, SEMAPHORE_DROP);
     for (int row = 0; row < GAME_MATRIX_SIZE; row++) {
         for (int column = 0; column < GAME_MATRIX_SIZE; column++) {
-            printf("%c",matrix->matrix[row][column]);
+            printf("%c",matrix->matrix[row * GAME_MATRIX_SIZE + column]);
         }
         printf("\n");
     }
@@ -125,7 +125,8 @@ void maintainGame(int roomId, int serverClientQueue, GameMessage * msg) {
     GameMatrix matrix;
     matrix.sem = semget(roomId + GAME_ROOM_KEY_ADDER, 1, IPC_CREAT | 0777);
     semctl(matrix.sem, SETVAL, 1);
-    matrix.memKey = shmget(roomId + GAME_ROOM_KEY_ADDER, sizeof(char[10][10]), 0);
+    matrix.memKey = shmget(roomId + GAME_ROOM_KEY_ADDER, GAME_MATRIX_SIZE * GAME_MATRIX_SIZE + 1, IPC_CREAT | 0777);
+    matrix.matrix = shmat(matrix.memKey, 0, 0);
     int result;
     while (true) {
         result = msgrcv(serverClientQueue, msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
@@ -144,9 +145,14 @@ void maintainGame(int roomId, int serverClientQueue, GameMessage * msg) {
         } else {
             result = atoi(msg->command);
             if (result == GAME_MOVE_REJECTED || result == GAME_YOUR_TOUR) {
+                printf("your move!\n");
                 scanf("%s", msg->command);
                 msg->type = GAME_CLIENT_TO_SERVER;
                 msgsnd(serverClientQueue, msg, MESSAGE_CONTENT_SIZE, 0);
+            } else if (result == GAME_MOVE_ACCEPTED) {
+                printf("your oponent's turn!\n");
+            } else {
+                printf("%s\n", msg->command);
             }
         }
     }

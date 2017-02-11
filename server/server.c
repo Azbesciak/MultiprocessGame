@@ -177,15 +177,21 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
                          int currentIndex, int winnerPid) {
     int playerIndex = getPlayerIndexById(
             playersMemory->players, lobby->rooms[roomId].players[currentIndex].pid);
+
     if (playerIndex >= 0) {
         Player *player = &playersMemory->players[playerIndex];
-        if (winnerPid != 0 && (player->pid == winnerPid || player->pid != -winnerPid)) {
+        printf("player %d winner %d\n", player->pid, winnerPid);
+        if (winnerPid != 0 && (player->pid == winnerPid ||
+                (winnerPid < 0 && player->pid != -winnerPid))) {
             strcpy(gameMessage->command, "You have won!\n");
+            printf("%s", gameMessage->command);
             if (winnerPid < 0) {
                 strcat(gameMessage->command, "Second Player has left the game.\n");
             }
-            msgsnd(player->queueId, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+        } else {
+            strcpy(gameMessage->command, "You have lost!\n");
         }
+        msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
         playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
         lobby->rooms[roomId].players[0].state = PLAYER_AWAITING_FOR_ROOM;
     }
@@ -315,11 +321,13 @@ void wasWrongIdSelected(Lobby *lobby, GameMessage *gameMessage, int clientServer
 
 void initializeGameMatrix(GameMatrix * matrix) {
     semaphoreOperation(matrix->sem, SEMAPHORE_DROP);
+    char tempMatrix[GAME_MATRIX_SIZE * GAME_MATRIX_SIZE];
     for (int row = 0; row < GAME_MATRIX_SIZE; row++) {
         for (int column = 0; column < GAME_MATRIX_SIZE; column++) {
-            matrix->matrix[row][column] = (char) 176;
+            tempMatrix[row * GAME_MATRIX_SIZE + column] = (char) 176;
         }
     }
+    strcpy(matrix->matrix, tempMatrix);
     semaphoreOperation(matrix->sem, SEMAPHORE_RAISE);
 }
 
@@ -333,31 +341,31 @@ bool didPlayerWin(GameMatrix *matrix, char playerSign) {
     for (int row = 0; row < GAME_MATRIX_SIZE; row++) {
         for (int column = 0; column < GAME_MATRIX_SIZE; column++) {
             if (row < GAME_MATRIX_SIZE - 4 &&
-                matrix->matrix[row][column] == playerSign &&                  // *
-                matrix->matrix[row + 1][column] == playerSign &&              // *
-                matrix->matrix[row + 2][column] == playerSign &&              // *
-                matrix->matrix[row + 3][column] == playerSign) {              // *
+                matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&                  // *
+                matrix->matrix[(row + 1) * GAME_MATRIX_SIZE + column] == playerSign &&            // *
+                matrix->matrix[(row + 2) * GAME_MATRIX_SIZE + column] == playerSign &&            // *
+                matrix->matrix[(row + 3) * GAME_MATRIX_SIZE + column] == playerSign) {            // *
                 didWin = true;
                 break;
             } else if (column < GAME_MATRIX_SIZE - 4 &&
-                       matrix->matrix[row][column] == playerSign &&           // * * * *
-                       matrix->matrix[row][column + 1] == playerSign &&       //
-                       matrix->matrix[row][column + 2] == playerSign &&       //
-                       matrix->matrix[row][column + 3] == playerSign) {       //
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           // * * * *
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column + 1] == playerSign &&       //
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column + 2] == playerSign &&       //
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column + 3] == playerSign) {       //
                 didWin = true;
                 break;
             } else if (row < GAME_MATRIX_SIZE - 4 && column < GAME_MATRIX_SIZE - 4 &&
-                       matrix->matrix[row][column] == playerSign &&           //       *
-                       matrix->matrix[row + 1][column + 1] == playerSign &&   //     *
-                       matrix->matrix[row + 2][column + 2] == playerSign &&   //   *
-                       matrix->matrix[row + 3][column + 3] == playerSign) {   // *
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           //       *
+                       matrix->matrix[(row + 1) * GAME_MATRIX_SIZE + column + 1] == playerSign &&   //     *
+                       matrix->matrix[(row + 2) * GAME_MATRIX_SIZE + column + 2] == playerSign &&   //   *
+                       matrix->matrix[(row + 3) * GAME_MATRIX_SIZE + column + 3] == playerSign) {   // *
                 didWin = true;
                 break;
             } else if (row >= 4 && column < GAME_MATRIX_SIZE - 4 &&           // *
-                       matrix->matrix[row][column] == playerSign &&           //   *
-                       matrix->matrix[row - 1][column + 1] == playerSign &&   //     *
-                       matrix->matrix[row - 2][column + 2] == playerSign &&   //       *
-                       matrix->matrix[row - 3][column + 3] == playerSign) {
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           //   *
+                       matrix->matrix[(row - 1) * GAME_MATRIX_SIZE + column + 1] == playerSign &&   //     *
+                       matrix->matrix[(row - 2) * GAME_MATRIX_SIZE + column + 2] == playerSign &&   //       *
+                       matrix->matrix[(row - 3) * GAME_MATRIX_SIZE + column + 3] == playerSign) {
                 didWin = true;
                 break;
             }
@@ -376,7 +384,9 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     GameMatrix matrix;
     matrix.sem = semget(roomId + GAME_ROOM_KEY_ADDER, 1, IPC_CREAT | 0777);
     semctl(matrix.sem, SETVAL, 1);
-    matrix.memKey = shmget(roomId + GAME_ROOM_KEY_ADDER, sizeof(char[10][10]), 0);
+    matrix.memKey = shmget(roomId + GAME_ROOM_KEY_ADDER,
+                           GAME_MATRIX_SIZE * GAME_MATRIX_SIZE + 1, IPC_CREAT | 0777);
+    matrix.matrix = shmat(matrix.memKey, 0, 0);
     bool finish = false;
     initializeGameMatrix(&matrix);
     Player *currentPlayer;
@@ -411,22 +421,24 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                 gameState[selectedColumn]++;
                 semaphoreOperation(matrix.sem, SEMAPHORE_DROP);
                 currentPlayerSign = (char) (currentPlayerIndex == 0 ? GAME_PLAYER_0_SIGN : GAME_PLAYER_1_SIGN);
-                matrix.matrix[gameState[selectedColumn]][selectedColumn] = currentPlayerSign;
+                matrix.matrix[gameState[selectedColumn] * GAME_MATRIX_SIZE + selectedColumn] = currentPlayerSign;
                 semaphoreOperation(matrix.sem, SEMAPHORE_RAISE);
 
                 if (didPlayerWin(&matrix, currentPlayerSign)) {
                     winnerId = currentPlayer->pid;
                     finish = true;
                 }
-
+                if (!finish) {
                 sprintf(gameMessage->command, "%d", GAME_MOVE_ACCEPTED);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
                 currentPlayerIndex = (currentPlayerIndex + 1) % 2;
                 semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+
                 currentPlayer = &lobby->rooms[roomId].players[currentPlayerIndex];
                 semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
                 sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                }
             } else {
                 sprintf(gameMessage->command, "%d", GAME_MOVE_REJECTED);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
@@ -439,6 +451,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     }
     shmctl(matrix.memKey, IPC_RMID, 0);
     semctl(matrix.sem, IPC_RMID, 0);
+    printf("game over \n");
     finishGame(roomId, lobby, playersMemory, winnerId);
 
 }
