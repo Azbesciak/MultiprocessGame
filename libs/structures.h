@@ -15,7 +15,7 @@
 #define SERVER_QUEUE_KEY 1234
 #define SERVER_INTERNAL_QUEUE_KEY 123
 #define MAX_PLAYER_AMOUNT 100
-#define MAX_PID_SIZE 10
+#define MAX_PID_SIZE 1
 
 #define USER_NAME_LENGTH 50
 #define PLAYER_IN_GAME 3
@@ -39,7 +39,7 @@
 // Game consts
 #define GAME_CLIENT_TO_SERVER 1
 #define GAME_SERVER_TO_CLIENT 2
-#define GAME_MATRIX_SIZE 10
+#define GAME_MATRIX_SIZE 4
 #define GAME_ROOM_KEY_ADDER 50
 #define GAME_PLAYER_0_SIGN 'x'
 #define GAME_PLAYER_1_SIGN 'o'
@@ -47,6 +47,15 @@
 #define GAME_YOUR_TOUR 2
 #define GAME_MOVE_ACCEPTED 1
 #define GAME_MOVE_REJECTED 0
+
+// Colors <3
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
 
 typedef struct GameMatrix {
     int sem;
@@ -91,7 +100,7 @@ typedef struct ChatMessage {
 
 typedef struct InitialMessage {
     long type;
-    char pid[MAX_PID_SIZE];
+    int pid;
     char userName[USER_NAME_LENGTH];
 } InitialMessage;
 

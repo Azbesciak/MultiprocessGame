@@ -183,13 +183,15 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
         printf("player %d winner %d\n", player->pid, winnerPid);
         if (winnerPid != 0 && (player->pid == winnerPid ||
                 (winnerPid < 0 && player->pid != -winnerPid))) {
-            strcpy(gameMessage->command, "You have won!\n");
-            printf("%s", gameMessage->command);
+            strcpy(gameMessage->command, "You won!\n");
+            printf("%s\n", gameMessage->command);
             if (winnerPid < 0) {
                 strcat(gameMessage->command, "Second Player has left the game.\n");
             }
+        } else if (winnerPid == 0){
+            strcpy(gameMessage->command, "Draw!\n");
         } else {
-            strcpy(gameMessage->command, "You have lost!\n");
+            strcpy(gameMessage->command, "You lost!\n");
         }
         msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
         playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
@@ -292,7 +294,7 @@ void addPlayer(int pid, int userQueue, char *name, PlayersMemory memory) {
     if (!wasPlayerAdded) {
         printf("Max player amount reached! Player not created");
     } else {
-        printf("Player %s sucessfully added !", name);
+        printf("Player %s successfully added !", name);
     }
     semaphoreOperation(memory.sem, SEMAPHORE_RAISE);
 }
@@ -332,7 +334,15 @@ void initializeGameMatrix(GameMatrix * matrix) {
 }
 
 bool isMovePossible(int currentRow, int currentColumn) {
-    return currentColumn < GAME_MATRIX_SIZE && currentColumn >= 0 && currentRow < GAME_MATRIX_SIZE;
+    return currentColumn < GAME_MATRIX_SIZE && currentColumn >= 0 && currentRow < GAME_MATRIX_SIZE - 1;
+}
+bool isDraw(int * gameState) {
+    for (int i = 0; i < GAME_MATRIX_SIZE; i++) {
+        if (gameState[i] < GAME_MATRIX_SIZE - 1) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool didPlayerWin(GameMatrix *matrix, char playerSign) {
@@ -340,29 +350,29 @@ bool didPlayerWin(GameMatrix *matrix, char playerSign) {
     semaphoreOperation(matrix->sem, SEMAPHORE_DROP);
     for (int row = 0; row < GAME_MATRIX_SIZE; row++) {
         for (int column = 0; column < GAME_MATRIX_SIZE; column++) {
-            if (row < GAME_MATRIX_SIZE - 4 &&
+            if (row < GAME_MATRIX_SIZE - 3 &&
                 matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&                  // *
                 matrix->matrix[(row + 1) * GAME_MATRIX_SIZE + column] == playerSign &&            // *
                 matrix->matrix[(row + 2) * GAME_MATRIX_SIZE + column] == playerSign &&            // *
                 matrix->matrix[(row + 3) * GAME_MATRIX_SIZE + column] == playerSign) {            // *
                 didWin = true;
                 break;
-            } else if (column < GAME_MATRIX_SIZE - 4 &&
+            } else if (column < GAME_MATRIX_SIZE - 3 &&
                        matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           // * * * *
                        matrix->matrix[row * GAME_MATRIX_SIZE + column + 1] == playerSign &&       //
                        matrix->matrix[row * GAME_MATRIX_SIZE + column + 2] == playerSign &&       //
                        matrix->matrix[row * GAME_MATRIX_SIZE + column + 3] == playerSign) {       //
                 didWin = true;
                 break;
-            } else if (row < GAME_MATRIX_SIZE - 4 && column < GAME_MATRIX_SIZE - 4 &&
-                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           //       *
+            } else if (row < GAME_MATRIX_SIZE - 3 && column < GAME_MATRIX_SIZE - 4 &&
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&             //       *
                        matrix->matrix[(row + 1) * GAME_MATRIX_SIZE + column + 1] == playerSign &&   //     *
                        matrix->matrix[(row + 2) * GAME_MATRIX_SIZE + column + 2] == playerSign &&   //   *
                        matrix->matrix[(row + 3) * GAME_MATRIX_SIZE + column + 3] == playerSign) {   // *
                 didWin = true;
                 break;
-            } else if (row >= 4 && column < GAME_MATRIX_SIZE - 4 &&           // *
-                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&           //   *
+            } else if (row >= 3 && column < GAME_MATRIX_SIZE - 3 &&                                 // *
+                       matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&             //   *
                        matrix->matrix[(row - 1) * GAME_MATRIX_SIZE + column + 1] == playerSign &&   //     *
                        matrix->matrix[(row - 2) * GAME_MATRIX_SIZE + column + 2] == playerSign &&   //       *
                        matrix->matrix[(row - 3) * GAME_MATRIX_SIZE + column + 3] == playerSign) {
@@ -411,9 +421,16 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
 
     sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
     msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
-
+    int result;
     while (!finish) {
-        msgrcv(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, GAME_CLIENT_TO_SERVER, 0);
+        result = msgrcv(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, GAME_CLIENT_TO_SERVER, 0);
+        if (result == -1) {
+            perror("?");
+            finish = true;
+            break;
+        } else {
+            printf("player %d move %s\n", currentPlayerIndex, gameMessage->command);
+        }
         gameMessage->type = GAME_SERVER_TO_CLIENT;
         if (isdigit(gameMessage->command[0])) {
             int selectedColumn = atoi(gameMessage->command);
@@ -427,6 +444,9 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                 if (didPlayerWin(&matrix, currentPlayerSign)) {
                     winnerId = currentPlayer->pid;
                     finish = true;
+                } else if (isDraw(gameState)) {
+                    finish = true;
+                    break;
                 }
                 if (!finish) {
                 sprintf(gameMessage->command, "%d", GAME_MOVE_ACCEPTED);
@@ -451,13 +471,13 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     }
     shmctl(matrix.memKey, IPC_RMID, 0);
     semctl(matrix.sem, IPC_RMID, 0);
-    printf("game over \n");
+    printf("Game in lobby %d finished \n", roomId);
     finishGame(roomId, lobby, playersMemory, winnerId);
 
 }
 
-void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby lobby) {
-    printf("server is running... pid %s\n", serverPid);
+void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lobby) {
+    printf("server is running... pid %d\n", serverPid);
     int mainQueue = msgget(SERVER_QUEUE_KEY, IPC_CREAT | 0777);
     if (mainQueue == -1) {
         perror("error while creating queue");
@@ -476,9 +496,11 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
         int chatProcess = fork();
         if (chatProcess == 0) {
             while (true) {
-                msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
+                result = msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
                        CHAT_CLIENT_TO_SERVER, 0);
-                sendMessageToAll(internalChatMessage, playersMem);
+                if (result != -1) {
+                    sendMessageToAll(internalChatMessage, playersMem);
+                }
             }
         } else {
             while (true) {
@@ -488,14 +510,13 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
                     sleep(1);
                     continue;
                 } else {
-                    int clientPid = atoi(initialMessage.pid);
+                    int clientPid = initialMessage.pid;
                     int clientServerQueue = msgget(clientPid, IPC_CREAT | 0777); //tworzy kolejkę dla uzytkownika
                     int clientProcess = fork();
                     if (clientProcess == 0) {
 
                         initialMessage.type = 2;
-                        printf("pid %s", serverPid);
-                        strcpy(initialMessage.pid, serverPid);
+                        initialMessage.pid =  serverPid;
                         result = msgsnd(clientServerQueue, &initialMessage, MAX_PID_SIZE, 0);
                         if (result == -1) {
                             perror("error while sending message to client");
@@ -530,7 +551,6 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
                                     }
                                     printf("command %s\n", gameMessage.command);
                                     if (isdigit(gameMessage.command[0])) {
-                                        printf("ok1\n");
                                         int roomId = atoi(gameMessage.command);
                                         if (roomId < 0 || roomId >= LOBBY_SIZE) {
                                             printf("WRONG\n");
@@ -538,6 +558,7 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
                                         } else {
                                             playerWasAddedToRoom = true;
                                             short roomState = addPlayerToRoom(roomId, clientPid, &playersMem, &lobby);
+                                            printf("player %s was added to room %d\n", user, roomId);
                                             sendGameStartInfo(roomState, roomId, &lobby);
                                             if (roomState == 2) {
                                                 int gameMaintainProcess = fork();
@@ -546,7 +567,6 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
                                                 }
                                             }
                                         }
-
                                     } else {
                                         wasWrongIdSelected(&lobby, &gameMessage, clientServerQueue);
                                     };
@@ -599,8 +619,9 @@ void maintainPlayersLifecycle(char *serverPid, PlayersMemory playersMem, Lobby l
 }
 
 int main(int argc, char const *argv[]) {
-    char serverPid[20];
-    sprintf(serverPid, "%d", getpid());
+//    char serverPid[20];
+//    sprintf(serverPid, "%d", getpid());
+    int serverPid = getpid();
     PlayersMemory players = preparePlayersMemory();
     Lobby lobby = prepareLobby();
     initializeSemaphore();
