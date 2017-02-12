@@ -25,7 +25,7 @@ void semaphoreOperation(int semId, short todo) {
 }
 bool maintainGame(int id, int queue, GameMessage *pMessage, int playerIndex);
 
-void runChat(int  CLIENT_PID, char * userName) {
+void runChat(int CLIENT_PID, char * userName) {
     char command[80];
     char CLIENT_PID_STRING[10];
     sprintf(CLIENT_PID_STRING, "%d", CLIENT_PID);
@@ -39,20 +39,37 @@ void runChat(int  CLIENT_PID, char * userName) {
     exit(0);
 }
 
+int getClientServerQueue(int queueKey) {
+    int clientServerQueue = msgget(queueKey, IPC_CREAT | IPC_EXCL | 0777);
+    if (clientServerQueue == -1) {
+        if (errno == EEXIST) {
+            clientServerQueue = msgget(queueKey, IPC_CREAT | IPC_EXCL | 0777);
+            msgctl(clientServerQueue, IPC_RMID, 0);
+            return msgget(queueKey, IPC_CREAT | IPC_EXCL | 0777);
+        } else {
+            perror("There is a problem with queue...");
+            exit(0);
+        }
+    } else {
+        return clientServerQueue;
+    }
+}
+
 int main(int argc, char const *argv[]) {
     initializeSemaphore();
     int CLIENT_PID = getpid();
 
     int mainQueue = msgget(SERVER_QUEUE_KEY, IPC_CREAT | 0777);
-    printf("pid %d\n", mainQueue);
+    printf("Server queue %d, client pid %d\n", mainQueue, CLIENT_PID);
     InitialMessage handshake;
-    handshake.type = 1;
+    handshake.type = GAME_CLIENT_TO_SERVER;
     printf("pass your name:\n");
     scanf("%s", handshake.userName);
     printf("name %s \n", handshake.userName);
 
     handshake.pid = CLIENT_PID;
-    int clientServerQueue = msgget(CLIENT_PID, IPC_CREAT | 0777);
+    int clientServerQueue = getClientServerQueue(CLIENT_PID);
+    printf("queue %d\n", clientServerQueue);
     int result = msgsnd(mainQueue, &handshake, MAX_PID_SIZE + USER_NAME_LENGTH, 0);
     if (result == -1) {
         perror("error while connecting server");
@@ -66,13 +83,13 @@ int main(int argc, char const *argv[]) {
     } else {
         printf("Waiting for server response...\n");
     }
-    result = msgrcv(clientServerQueue, &handshake, MAX_PID_SIZE, 2, 0);
+    result = msgrcv(clientServerQueue, &handshake, MAX_PID_SIZE + USER_NAME_LENGTH, GAME_SERVER_TO_CLIENT, 0);
     if (result == -1) {
         perror("error occurred while connecting server");
         return -1;
     }
-    printf("Connected! server pid : %d\n", handshake.pid);
     int serverPid = handshake.pid;
+    printf("Connected! server pid : %d\n", serverPid);
     int gamePid;
     if (fork() == 0) {
         runChat(CLIENT_PID, handshake.userName);
@@ -128,6 +145,7 @@ int main(int argc, char const *argv[]) {
             if (serverState == -1) {
                 printf("connection lost - server dead\n");
                 msgctl(clientServerQueue, IPC_RMID, NULL);
+                msgctl(mainQueue, IPC_RMID, NULL);
                 return -1;
             } else {
                 gameState = kill(gamePid, 0);

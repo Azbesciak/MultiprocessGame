@@ -10,7 +10,7 @@ int main(int argc, char const *argv[]) {
     ChatMessage chatMessage;
     int CLIENT_PID = 1234;
     if (argc > 1) {
-        printf("Podłączony do chatu nr %s \n", argv[1]);
+        printf("Your chat id is %s \n", argv[1]);
         CLIENT_PID = atoi(argv[1]);
         strcpy(chatMessage.source, argv[1]);
     }
@@ -20,7 +20,8 @@ int main(int argc, char const *argv[]) {
         strcat(chatMessage.source, "unknown");
     }
     int clientServerQueue = msgget(CLIENT_PID, IPC_CREAT | 0777);
-    printf("Witaj w chacie, %s \n", chatMessage.source);
+    printf("%d - queue id\n", clientServerQueue);
+    printf("Welcome on chat, %s \n", chatMessage.source);
     chatMessage.type = CHAT_CLIENT_TO_SERVER;
     if (fork() == 0) {
         while (true) {
