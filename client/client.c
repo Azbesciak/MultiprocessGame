@@ -100,7 +100,9 @@ int main(int argc, char const *argv[]) {
             int response = 0;
             int roomId = -1;
             int playerIndex = -1;
+            printf("%sPlease, select the room%s\n", ANSI_COLOR_BLUE, ANSI_COLOR_RESET);
             msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+            printf("room has come\n");
             printf("%s\n", msg.command);
             while (response != 2) {
                 if (response != 1) {
@@ -120,7 +122,7 @@ int main(int argc, char const *argv[]) {
                 if (isdigit(msg.command[0])) {
                     response = atoi(msg.command);
                     if (response == 1) {
-                        printf("Successfully added to room!\n");
+                        printf("Successfully added to the room!\n");
                         playerIndex = 0;
                     } else if (response == 2) {
                         printf("Game started!\n");
@@ -133,6 +135,11 @@ int main(int argc, char const *argv[]) {
                 }
             }
             wantToContinue = maintainGame(roomId, clientServerQueue, &msg, playerIndex);
+            if (wantToContinue) {
+                msg.type = GAME_WANT_TO_CONTINUE;
+                strcpy(msg.command, "ok");
+                msgsnd(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, IPC_NOWAIT);
+            }
         }
         msgctl(clientServerQueue, IPC_RMID, NULL);
         kill(CLIENT_PID, 9);
@@ -223,16 +230,16 @@ bool maintainGame(int roomId, int serverClientQueue, GameMessage * msg, int play
         printGameState(&matrix);
         if (!isdigit(msg->command[0])) {
             printf("%s\n", msg->command);
-            return false;
-//            printf("want to rejoin? y/n \n");
-//            char answer[1];
-//            cleanUpGame(&matrix);
-//            scanf("%s", answer);
-//            if (strcmp(answer,"y") == 0 || strcmp(answer, "Y") == 0) {
-//                return true;
-//            } else {
-//                return false;
-//            }
+//            return false;
+            printf("want to rejoin? y/n \n");
+            char answer[1];
+            cleanUpGame(&matrix);
+            scanf("%s", answer);
+            if (strcmp(answer,"y") == 0 || strcmp(answer, "Y") == 0) {
+                return true;
+            } else {
+                return false;
+            }
         } else {
             result = atoi(msg->command);
             if (result == GAME_MOVE_REJECTED || result == GAME_YOUR_TOUR) {
@@ -245,7 +252,7 @@ bool maintainGame(int roomId, int serverClientQueue, GameMessage * msg, int play
                 msg->type = GAME_CLIENT_TO_SERVER;
                 msgsnd(serverClientQueue, msg, MESSAGE_CONTENT_SIZE, 0);
             } else if (result == GAME_MOVE_ACCEPTED) {
-                printf("your oponent's turn!\n");
+                printf("your opponent's turn!\n");
             } else {
                 printf("%s\n", msg->command);
 

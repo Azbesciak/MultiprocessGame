@@ -94,7 +94,7 @@ void removePlayer(int pid, PlayersMemory *memory, Lobby *lobby) {
     for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
         if (memory->players[i].pid == pid) {
             Player *player = &memory->players[i];
-            printf("Player %s left the game\n", player->name);
+            printf("Player %s was successfully removed from list\n", player->name);
             msgctl(player->queueId, IPC_RMID, 0);
             memory->players[i].state = PLAYER_DISCONNECTED;
             wasFound = true;
@@ -177,22 +177,24 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
 
     if (playerIndex >= 0) {
         Player *player = &playersMemory->players[playerIndex];
-        printf("player %d winner %d\n", player->pid, winnerPid);
-        if (winnerPid != 0 && (player->pid == winnerPid ||
-                (winnerPid < 0 && player->pid != -winnerPid))) {
-            strcpy(gameMessage->command, "You won!\n");
-            printf("%s\n", gameMessage->command);
-            if (winnerPid < 0) {
-                strcat(gameMessage->command, "Second Player has left the game.\n");
+        if (player->state != PLAYER_AWAITING_FOR_ROOM && player->state != PLAYER_AWAITING_FOR_PARTNER) {
+            printf("player %d winner %d\n", player->pid, winnerPid);
+            if (winnerPid != 0 && (player->pid == winnerPid ||
+                                   (winnerPid < 0 && player->pid != -winnerPid))) {
+                strcpy(gameMessage->command, "You won!\n");
+                printf("%s\n", gameMessage->command);
+                if (winnerPid < 0) {
+                    strcat(gameMessage->command, "Second Player has left the game.\n");
+                }
+            } else if (winnerPid == 0){
+                strcpy(gameMessage->command, "Draw!\n");
+            } else {
+                strcpy(gameMessage->command, "You lost!\n");
             }
-        } else if (winnerPid == 0){
-            strcpy(gameMessage->command, "Draw!\n");
-        } else {
-            strcpy(gameMessage->command, "You lost!\n");
+            msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+            playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
+            lobby->rooms[roomId].players[currentIndex].state = PLAYER_AWAITING_FOR_ROOM;
         }
-        msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
-        playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
-        lobby->rooms[roomId].players[0].state = PLAYER_AWAITING_FOR_ROOM;
     }
 }
 
@@ -476,8 +478,8 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     semctl(matrix.sem, IPC_RMID, 0);
     printf("Game in lobby %d finished \n", roomId);
     finishGame(roomId, lobby, playersMemory, winnerId);
-
 }
+
 int createMainQueue() {
     return msgget(SERVER_QUEUE_KEY, IPC_CREAT | 0777);
 }
@@ -504,7 +506,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
         int chatProcess = fork();
         if (chatProcess == 0) {
             while (true) {
-                printf("listen for message\n");
+                printf("listen for a chat message...\n");
                 result = msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
                        CHAT_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
@@ -557,40 +559,48 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                                     }
                                 }
                             } else if (fork() == 0) {
-                                GameMessage gameMessage;
-                                prepareLobbyInitialMessage(&lobby, &gameMessage);
-                                msgsnd(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
-                                bool playerWasAddedToRoom = false;
-                                do {
-                                    result = msgrcv(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE,
-                                                    GAME_CLIENT_TO_SERVER, 0);
-                                    if (result == -1) {
-                                        return;
-                                    }
-                                    printf("command %s\n", gameMessage.command);
-                                    if (isdigit(gameMessage.command[0])) {
-                                        int roomId = atoi(gameMessage.command);
-                                        if (roomId < 0 || roomId >= LOBBY_SIZE) {
-                                            printf("WRONG\n");
-                                            wasWrongIdSelected(&lobby, &gameMessage, clientServerQueue);
-                                        } else {
-                                            playerWasAddedToRoom = true;
-                                            short roomState = addPlayerToRoom(roomId, clientPid, &playersMem, &lobby);
-                                            printf("player %s was added to room %d\n", user, roomId);
-                                            sendGameStartInfo(roomState, roomId, &lobby);
-                                            if (roomState == 2) {
-                                                int gameMaintainProcess = fork();
-                                                if (gameMaintainProcess == 0) {
-                                                    maintainGame(&lobby, &playersMem, &gameMessage, roomId);
+                                while (true) {
+                                    GameMessage gameMessage;
+                                    prepareLobbyInitialMessage(&lobby, &gameMessage);
+                                    msgsnd(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                                    bool playerWasAddedToRoom = false;
+                                    do {
+                                        result = msgrcv(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE,
+                                                        GAME_CLIENT_TO_SERVER, 0);
+                                        if (result == -1) {
+                                            return;
+                                        }
+                                        printf("command %s\n", gameMessage.command);
+                                        if (isdigit(gameMessage.command[0])) {
+                                            int roomId = atoi(gameMessage.command);
+                                            if (roomId < 0 || roomId >= LOBBY_SIZE) {
+                                                printf("WRONG\n");
+                                                wasWrongIdSelected(&lobby, &gameMessage, clientServerQueue);
+                                            } else {
+                                                playerWasAddedToRoom = true;
+                                                short roomState = addPlayerToRoom(roomId, clientPid, &playersMem, &lobby);
+                                                printf("player %s was added to room %d\n", user, roomId);
+                                                sendGameStartInfo(roomState, roomId, &lobby);
+                                                if (roomState == 2) {
+                                                    int gameMaintainProcess = fork();
+                                                    if (gameMaintainProcess == 0) {
+                                                        maintainGame(&lobby, &playersMem, &gameMessage, roomId);
+                                                    }
                                                 }
                                             }
-                                        }
+                                        } else {
+                                            wasWrongIdSelected(&lobby, &gameMessage, clientServerQueue);
+                                        };
+                                    } while (!playerWasAddedToRoom);
+                                    printf("client process ended!\n");
+                                    result = msgrcv(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, GAME_WANT_TO_CONTINUE, 0);
+                                    if (result == -1) {
+                                        printf("%sPlayer %s left the game %s\n", ANSI_COLOR_BLUE, user, ANSI_COLOR_RESET);
+                                        exit(0);
                                     } else {
-                                        wasWrongIdSelected(&lobby, &gameMessage, clientServerQueue);
-                                    };
-                                } while (!playerWasAddedToRoom);
-                                printf("client process ended!\n");
-
+                                        printf("%sPlayer %s will be moved to the lobby%s\n", ANSI_COLOR_BLUE, user, ANSI_COLOR_RESET);
+                                    }
+                                }
                             } else {
                                 while (true) {
                                     int isAlive = kill(clientPid, 0);

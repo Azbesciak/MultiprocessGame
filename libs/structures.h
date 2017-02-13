@@ -39,6 +39,7 @@
 // Game consts
 #define GAME_CLIENT_TO_SERVER 1
 #define GAME_SERVER_TO_CLIENT 2
+#define GAME_WANT_TO_CONTINUE 5
 #define GAME_MATRIX_SIZE 4
 #define GAME_ROOM_KEY_ADDER 50
 #define GAME_PLAYER_0_SIGN 'x'
