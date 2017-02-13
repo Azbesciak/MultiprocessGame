@@ -44,6 +44,11 @@ Lobby prepareLobby() {
         Room room;
         room.state = ROOM_EMPTY;
         lobby.rooms[i] = room;
+        for (int y = 0; y < 2; y++) {
+            lobby.rooms[i].players[y].pid = -1;
+            lobby.rooms[i].players[y].state = PLAYER_DISCONNECTED;
+            lobby.rooms[i].players[y].queueId = -1;
+        }
     }
     lobby.sem = semget(LOBBY_SEMAPHORE_KEY, 1, IPC_CREAT | 0777);
     semctl(lobby.sem, 0, SETVAL, 1);
@@ -64,6 +69,7 @@ int getPlayerIndexById(Player *players, int playerId) {
 void removePlayerFromLobby(Lobby *lobby, PlayersMemory *playersMemory, int playerId) {
     Player *player = NULL;
     int roomId = 0;
+
     semaphoreOperation(playersMemory->sem, SEMAPHORE_DROP);
     semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
     while (roomId < LOBBY_SIZE) {
@@ -96,6 +102,7 @@ void removePlayer(int pid, PlayersMemory *memory, Lobby *lobby) {
             Player *player = &memory->players[i];
             printf("Player %s was successfully removed from list\n", player->name);
             msgctl(player->queueId, IPC_RMID, 0);
+            player->pid = -1;
             memory->players[i].state = PLAYER_DISCONNECTED;
             wasFound = true;
             break;
@@ -133,14 +140,23 @@ short addPlayerToRoom(int roomId, int playerId, PlayersMemory *playersMemory, Lo
             printf("Player selected not available room!\n");
         } else {
             if (roomState == ROOM_EMPTY) {
-                found = 1;
+                found = ROOM_PLAYER_AWAITING;
                 player->state = PLAYER_AWAITING_FOR_PARTNER;
                 lobby->rooms[roomId].state = ROOM_PLAYER_AWAITING;
                 lobby->rooms[roomId].players[0] = *player;
             } else if (roomState == ROOM_PLAYER_AWAITING) {
-                found = 2;
+                found = ROOM_IN_GAME;
                 player->state = PLAYER_IN_GAME;
-                lobby->rooms[roomId].players[0].state = PLAYER_IN_GAME;
+                Player *otherPlayer = NULL;
+                int otherPlayerIndex = getPlayerIndexById(
+                        playersMemory->players, lobby->rooms[roomId].players[0].pid);
+                if (otherPlayerIndex >= 0) {
+                    otherPlayer = &playersMemory->players[otherPlayerIndex];
+                    otherPlayer->state = PLAYER_IN_GAME;
+                    lobby->rooms[roomId].players[0] = *otherPlayer;
+                } else {
+                    lobby->rooms[roomId].players[0].state = PLAYER_IN_GAME;
+                }
                 lobby->rooms[roomId].state = ROOM_IN_GAME;
                 lobby->rooms[roomId].players[1] = *player;
             }
@@ -172,17 +188,24 @@ void sendGameStartInfo(short roomState, int roomId, Lobby *lobby) {
 
 void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameMessage,
                          int currentIndex, int winnerPid) {
+    printf("looking for a player...\n");
     int playerIndex = getPlayerIndexById(
             playersMemory->players, lobby->rooms[roomId].players[currentIndex].pid);
 
     if (playerIndex >= 0) {
+        printf("player found!\n");
         Player *player = &playersMemory->players[playerIndex];
-        if (player->state != PLAYER_AWAITING_FOR_ROOM && player->state != PLAYER_AWAITING_FOR_PARTNER) {
+        if (player->pid == -winnerPid && winnerPid < 0) {
+            printf("%splayer %d has left %s\n", ANSI_COLOR_GREEN, player->pid, ANSI_COLOR_RESET);
+            playersMemory->players[playerIndex].state = PLAYER_DISCONNECTED;
+            return;
+        }
+
+        if (player->state == PLAYER_IN_GAME) {
             printf("player %d winner %d\n", player->pid, winnerPid);
             if (winnerPid != 0 && (player->pid == winnerPid ||
                                    (winnerPid < 0 && player->pid != -winnerPid))) {
                 strcpy(gameMessage->command, "You won!\n");
-                printf("%s\n", gameMessage->command);
                 if (winnerPid < 0) {
                     strcat(gameMessage->command, "Second Player has left the game.\n");
                 }
@@ -191,10 +214,13 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
             } else {
                 strcpy(gameMessage->command, "You lost!\n");
             }
+            printf("%sSending final message %s to %d%s\n", ANSI_COLOR_YELLOW, gameMessage->command, player->pid, ANSI_COLOR_RESET);
             msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
             playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
             lobby->rooms[roomId].players[currentIndex].state = PLAYER_AWAITING_FOR_ROOM;
         }
+    } else {
+        printf("player pid %d not found!\n", lobby->rooms[roomId].players[currentIndex].pid);
     }
 }
 
@@ -202,6 +228,7 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
 // if 0 - draw,
 // if winner id > 0 -> it is winner pid
 void finishGame(int roomId, Lobby *lobby, PlayersMemory *playersMemory, int winnerPid) {
+    printf("Game in lobby %d finished - result : %d\n", roomId, winnerPid);
     GameMessage gameMessage;
     gameMessage.type = GAME_SERVER_TO_CLIENT;
     semaphoreOperation(playersMemory->sem, SEMAPHORE_DROP);
@@ -242,6 +269,18 @@ char *getLobbyState(Lobby *lobby) {
     semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
     return message;
 }
+
+void getFullLobbyState(Lobby *lobby) {
+    semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+    for (int i = 0; i < LOBBY_SIZE; i++) {
+        printf("ROOM %d  roomState %d | pl1 pid %d state %d | pl2 pid %d state %d\n",
+               i, lobby->rooms[i].state,
+               lobby->rooms[i].players[0].pid, lobby->rooms[i].players[0].state,
+               lobby->rooms[i].players[1].pid, lobby->rooms[i].players[1].state);
+    }
+    semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+}
+
 
 void prepareLobbyInitialMessage(Lobby *lobby, GameMessage *message) {
     message->type = GAME_SERVER_TO_CLIENT;
@@ -390,6 +429,10 @@ bool didPlayerWin(GameMatrix *matrix, char playerSign) {
     return didWin;
 }
 
+char getPlayerSign(int playerIndex) {
+    return (char) (playerIndex == 0 ? GAME_PLAYER_0_SIGN : GAME_PLAYER_1_SIGN);
+}
+
 void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameMessage, int roomId) {
     int winnerId = 0;
     int gameState[GAME_MATRIX_SIZE];
@@ -431,7 +474,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
         result = msgrcv(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, GAME_CLIENT_TO_SERVER, 0);
         if (result == -1) {
             perror("?");
-            finish = true;
+            winnerId = - currentPlayer->pid;
             break;
         } else {
             printf("player %d move %s\n", currentPlayerIndex, gameMessage->command);
@@ -442,7 +485,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
             if (isMovePossible(gameState[selectedColumn], selectedColumn)) {
                 gameState[selectedColumn]++;
                 semaphoreOperation(matrix.sem, SEMAPHORE_DROP);
-                currentPlayerSign = (char) (currentPlayerIndex == 0 ? GAME_PLAYER_0_SIGN : GAME_PLAYER_1_SIGN);
+                currentPlayerSign = getPlayerSign(currentPlayerIndex);
                 matrix.matrix[gameState[selectedColumn] * GAME_MATRIX_SIZE + selectedColumn] = currentPlayerSign;
                 semaphoreOperation(matrix.sem, SEMAPHORE_RAISE);
 
@@ -453,8 +496,22 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                     finish = true;
                     break;
                 }
+                semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+                if (kill(lobby->rooms[roomId].players[0].pid, 0) == -1) {
+                    finish = true;
+                    winnerId = -lobby->rooms[roomId].players[0].pid;
+                    printf("game over\n");
+                } else if (kill(lobby->rooms[roomId].players[1].pid, 0) == -1) {
+                    finish = true;
+                    winnerId = -lobby->rooms[roomId].players[1].pid;
+                    printf("game over\n");
+                }
+                semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                printf("inside and will send a message\n");
                 if (!finish) {
                 sprintf(gameMessage->command, "%d", GAME_MOVE_ACCEPTED);
+                    printf("%ssending message %s to player %d(%s) %s\n", ANSI_COLOR_MAGENTA,
+                           gameMessage->command, currentPlayer->pid, currentPlayer->name, ANSI_COLOR_RESET);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
                 currentPlayerIndex = (currentPlayerIndex + 1) % 2;
                 semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
@@ -462,6 +519,8 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                 currentPlayer = &lobby->rooms[roomId].players[currentPlayerIndex];
                 semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
                 sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
+                    printf("%ssending message %s to player %s %s\n",
+                           ANSI_COLOR_MAGENTA, gameMessage->command, currentPlayer->name, ANSI_COLOR_RESET);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
                 }
             } else {
@@ -476,7 +535,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     }
     shmctl(matrix.memKey, IPC_RMID, 0);
     semctl(matrix.sem, IPC_RMID, 0);
-    printf("Game in lobby %d finished \n", roomId);
+    printf("game normally finished\n");
     finishGame(roomId, lobby, playersMemory, winnerId);
 }
 
@@ -484,11 +543,56 @@ int createMainQueue() {
     return msgget(SERVER_QUEUE_KEY, IPC_CREAT | 0777);
 }
 
-int restartMainQueue(int existingQueueId) {
-    msgctl(existingQueueId, IPC_RMID, 0);
-    return createMainQueue();
-}
+void lobbyChecker(PlayersMemory * playersMemory, Lobby * lobby) {
+    while (true) {
+        for (int roomId = 0; roomId < LOBBY_SIZE; roomId++) {
+            semaphoreOperation(playersMemory->sem, SEMAPHORE_DROP);
+            semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+            if (lobby->rooms[roomId].players[0].state == PLAYER_IN_GAME &&
+                lobby->rooms[roomId].players[1].state == PLAYER_DISCONNECTED) {
+                semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                sleep(3);
+                semaphoreOperation(playersMemory->sem, SEMAPHORE_DROP);
+                semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+                if (lobby->rooms[roomId].players[0].state == PLAYER_IN_GAME &&
+                    lobby->rooms[roomId].players[1].state == PLAYER_DISCONNECTED) {
+                    semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                    semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                    printf("%sINDICATED PLAYER %d DEADLOCK%s\n", ANSI_COLOR_RED, lobby->rooms[roomId].players[0].pid, ANSI_COLOR_RESET);
+                    finishGame(roomId, lobby, playersMemory, -lobby->rooms[roomId].players[1].pid);
+                } else {
+                    semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                    semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                }
 
+            } else if (lobby->rooms[roomId].players[1].state == PLAYER_IN_GAME &&
+                       lobby->rooms[roomId].players[0].state == PLAYER_DISCONNECTED) {
+                semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                sleep(3);
+                semaphoreOperation(playersMemory->sem, SEMAPHORE_DROP);
+                semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+                if (lobby->rooms[roomId].players[1].state == PLAYER_IN_GAME &&
+                    lobby->rooms[roomId].players[0].state == PLAYER_DISCONNECTED) {
+                    semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                    semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                    printf("%sINDICATED PLAYER %d DEADLOCK%s", ANSI_COLOR_RED, lobby->rooms[roomId].players[1].pid, ANSI_COLOR_RESET);
+                    finishGame(roomId, lobby, playersMemory, -lobby->rooms[roomId].players[0].pid);
+                } else {
+                    semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                    semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+                }
+
+            } else {
+                semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+                semaphoreOperation(playersMemory->sem, SEMAPHORE_RAISE);
+            }
+        }
+        sleep(5);
+    }
+
+}
 void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lobby) {
     printf("server is running... pid %d\n", serverPid);
     int mainQueue = createMainQueue();
@@ -511,18 +615,21 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                        CHAT_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
                     perror("internal queue error:");
+                    msgctl(internalChatQueue, IPC_RMID, 0);
+                    exit(0);
                 } else {
                     printf("sending message to all\n");
                     sendMessageToAll(&internalChatMessage, &playersMem);
                 }
             }
+
+        } if (fork() == 0) {
+            lobbyChecker(&playersMem, &lobby);
         } else {
             while (true) {
                 result = msgrcv(mainQueue, &initialMessage, MAX_PID_SIZE + USER_NAME_LENGTH, GAME_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
                     perror("error while connecting client");
-//                    printf("will try to create restart queue\n");
-//                    mainQueue = restartMainQueue(mainQueue);
                     sleep(1);
                     continue;
                 } else {
@@ -581,7 +688,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                                                 short roomState = addPlayerToRoom(roomId, clientPid, &playersMem, &lobby);
                                                 printf("player %s was added to room %d\n", user, roomId);
                                                 sendGameStartInfo(roomState, roomId, &lobby);
-                                                if (roomState == 2) {
+                                                if (roomState == ROOM_IN_GAME) {
                                                     int gameMaintainProcess = fork();
                                                     if (gameMaintainProcess == 0) {
                                                         maintainGame(&lobby, &playersMem, &gameMessage, roomId);
@@ -617,7 +724,6 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                                 }
                             }
                         }
-
                     } else {
                         printf("player %s connected to server - pid : %d \n", initialMessage.userName, clientPid);
                         addPlayer(clientPid, clientServerQueue, initialMessage.userName, playersMem);
@@ -625,7 +731,6 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                     }
                 }
             }
-
         }
     } else {
         bool canContinue = true;
@@ -640,6 +745,8 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
             } else if (strcmp(command, "lobby") == 0) {
                 char *string = getLobbyState(&lobby);
                 printf("%s\n", string);
+            } else if (strcmp(command, "flobby") == 0) {
+                getFullLobbyState(&lobby);
             }
         } while (canContinue);
         msgctl(mainQueue, IPC_RMID, 0);
@@ -648,8 +755,6 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
 }
 
 int main(int argc, char const *argv[]) {
-//    char serverPid[20];
-//    sprintf(serverPid, "%d", getpid());
     int serverPid = getpid();
     PlayersMemory players = preparePlayersMemory();
     Lobby lobby = prepareLobby();
