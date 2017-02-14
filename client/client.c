@@ -70,12 +70,12 @@ int main(int argc, char const *argv[]) {
     handshake.pid = CLIENT_PID;
     int clientServerQueue = getClientServerQueue(CLIENT_PID);
     printf("queue %d\n", clientServerQueue);
-    int result = msgsnd(mainQueue, &handshake, MAX_PID_SIZE + USER_NAME_LENGTH, 0);
+    int result = msgsnd(mainQueue, &handshake, INITIAL_MESSAGE_SIZE, 0);
     if (result == -1) {
         perror("error while connecting server");
         printf("try again...\n");
         mainQueue = msgget(SERVER_QUEUE_KEY, IPC_CREAT | 0777);
-        result = msgsnd(mainQueue, &handshake, MAX_PID_SIZE + USER_NAME_LENGTH, 0);
+        result = msgsnd(mainQueue, &handshake, INITIAL_MESSAGE_SIZE, 0);
         if (result == -1) {
             perror("failed again");
             return -1;
@@ -83,7 +83,7 @@ int main(int argc, char const *argv[]) {
     } else {
         printf("Waiting for server response...\n");
     }
-    result = msgrcv(clientServerQueue, &handshake, MAX_PID_SIZE + USER_NAME_LENGTH, GAME_SERVER_TO_CLIENT, 0);
+    result = msgrcv(clientServerQueue, &handshake, INITIAL_MESSAGE_SIZE, GAME_SERVER_TO_CLIENT, 0);
     if (result == -1) {
         perror("error occurred while connecting server");
         return -1;
@@ -101,7 +101,7 @@ int main(int argc, char const *argv[]) {
             int roomId = -1;
             int playerIndex = -1;
             printf("%sPlease, select the room%s\n", ANSI_COLOR_BLUE, ANSI_COLOR_RESET);
-            msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+            msgrcv(clientServerQueue, &msg, GAME_MESSAGE_SIZE, GAME_SERVER_TO_CLIENT, 0);
             printf("room came\n");
             printf("%s\n", msg.command);
             while (response != 2) {
@@ -113,7 +113,7 @@ int main(int argc, char const *argv[]) {
                     msg.type = GAME_CLIENT_TO_SERVER;
                     msgsnd(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, 0);
                 }
-                result = msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+                result = msgrcv(clientServerQueue, &msg, GAME_MESSAGE_SIZE, GAME_SERVER_TO_CLIENT, 0);
 
                 if (result == -1) {
                     perror("server communication broken");
@@ -138,7 +138,7 @@ int main(int argc, char const *argv[]) {
             if (wantToContinue) {
                 msg.type = GAME_WANT_TO_CONTINUE;
                 strcpy(msg.command, "ok");
-                msgsnd(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, IPC_NOWAIT);
+                msgsnd(clientServerQueue, &msg, GAME_MESSAGE_SIZE, IPC_NOWAIT);
             }
         }
         msgctl(clientServerQueue, IPC_RMID, NULL);
@@ -221,7 +221,7 @@ bool maintainGame(int roomId, int serverClientQueue, GameMessage * msg, int play
     int result;
 
     while (true) {
-        result = msgrcv(serverClientQueue, msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
+        result = msgrcv(serverClientQueue, msg, GAME_MESSAGE_SIZE, GAME_SERVER_TO_CLIENT, 0);
         if (result == -1) {
             printf("queue broken \n");
             cleanUpGame(&matrix);
@@ -250,7 +250,7 @@ bool maintainGame(int roomId, int serverClientQueue, GameMessage * msg, int play
                 printPlayerSign(playerIndex);
                 scanf("%s", msg->command);
                 msg->type = GAME_CLIENT_TO_SERVER;
-                msgsnd(serverClientQueue, msg, MESSAGE_CONTENT_SIZE, 0);
+                msgsnd(serverClientQueue, msg, GAME_MESSAGE_SIZE, 0);
             } else if (result == GAME_MOVE_ACCEPTED) {
                 printf("your opponent's turn!\n");
             } else {

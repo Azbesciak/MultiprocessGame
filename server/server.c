@@ -174,13 +174,13 @@ void sendGameStartInfo(short roomState, int roomId, Lobby *lobby) {
     if (roomState == 1) {
         strcpy(gameMessage.command, "1");
         int queueId = lobby->rooms[roomId].players[0].queueId;
-        msgsnd(queueId, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+        msgsnd(queueId, &gameMessage, GAME_MESSAGE_SIZE, 0);
     } else {
         strcpy(gameMessage.command, "2");
         int firstPlayerQueue = lobby->rooms[roomId].players[0].queueId;
-        msgsnd(firstPlayerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+        msgsnd(firstPlayerQueue, &gameMessage, GAME_MESSAGE_SIZE, 0);
         int secondPlayerQueue = lobby->rooms[roomId].players[1].queueId;
-        msgsnd(secondPlayerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+        msgsnd(secondPlayerQueue, &gameMessage, GAME_MESSAGE_SIZE, 0);
 
     }
     semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
@@ -215,7 +215,7 @@ void finishAndSendResult(int roomId, Lobby *lobby, PlayersMemory *playersMemory,
                 strcpy(gameMessage->command, "You lost!\n");
             }
             printf("%sSending final message %s to %d%s\n", ANSI_COLOR_YELLOW, gameMessage->command, player->pid, ANSI_COLOR_RESET);
-            msgsnd(player->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+            msgsnd(player->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
             playersMemory->players[playerIndex].state = PLAYER_AWAITING_FOR_ROOM;
             lobby->rooms[roomId].players[currentIndex].state = PLAYER_AWAITING_FOR_ROOM;
         }
@@ -345,7 +345,7 @@ void sendMessageToAll(ChatMessage * message, PlayersMemory * memory) {
     for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
         if (memory->players[i].state != PLAYER_DISCONNECTED) {
             printf("q %d t %s\n", memory->players[i].queueId, message->content);
-            result = msgsnd(memory->players[i].queueId, message, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, IPC_NOWAIT);
+            result = msgsnd(memory->players[i].queueId, message, CHAT_MESSAGE_SIZE, IPC_NOWAIT);
             if (result == -1) {
                 perror("error while sending chat message");
             }
@@ -362,7 +362,7 @@ void wasWrongIdSelected(Lobby *lobby, GameMessage *gameMessage, int clientServer
     strcpy(gameMessage->command, message);
     gameMessage->type = GAME_SERVER_TO_CLIENT;
 
-    msgsnd(clientServerQueue, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+    msgsnd(clientServerQueue, gameMessage, GAME_MESSAGE_SIZE, 0);
 }
 
 void initializeGameMatrix(GameMatrix * matrix) {
@@ -408,7 +408,7 @@ bool didPlayerWin(GameMatrix *matrix, char playerSign) {
                        matrix->matrix[row * GAME_MATRIX_SIZE + column + 3] == playerSign) {       //
                 didWin = true;
                 break;
-            } else if (row < GAME_MATRIX_SIZE - 3 && column < GAME_MATRIX_SIZE - 4 &&
+            } else if (row < GAME_MATRIX_SIZE - 3 && column < GAME_MATRIX_SIZE - 3 &&
                        matrix->matrix[row * GAME_MATRIX_SIZE + column] == playerSign &&             //       *
                        matrix->matrix[(row + 1) * GAME_MATRIX_SIZE + column + 1] == playerSign &&   //     *
                        matrix->matrix[(row + 2) * GAME_MATRIX_SIZE + column + 2] == playerSign &&   //   *
@@ -458,7 +458,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
 
     sprintf(gameMessage->command, "%d", GAME_MOVE_ACCEPTED);
-    msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+    msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
     //yeah i know, nice place to make a method <3
 
     //let second player know that he has to make a move
@@ -468,10 +468,10 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
     semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
 
     sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
-    msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+    msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
     int result;
     while (!finish) {
-        result = msgrcv(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, GAME_CLIENT_TO_SERVER, 0);
+        result = msgrcv(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, GAME_CLIENT_TO_SERVER, 0);
         if (result == -1) {
             perror("?");
             winnerId = - currentPlayer->pid;
@@ -521,7 +521,7 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                 sprintf(gameMessage->command, "%d", GAME_MOVE_ACCEPTED);
                     printf("%ssending message %s to player %d(%s) %s\n", ANSI_COLOR_MAGENTA,
                            gameMessage->command, currentPlayer->pid, currentPlayer->name, ANSI_COLOR_RESET);
-                msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
                 currentPlayerIndex = (currentPlayerIndex + 1) % 2;
 
                 semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
@@ -530,15 +530,15 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                 sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
                     printf("%ssending message %s to player %s %s\n",
                            ANSI_COLOR_MAGENTA, gameMessage->command, currentPlayer->name, ANSI_COLOR_RESET);
-                msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
                 }
             } else {
                 sprintf(gameMessage->command, "%d", GAME_MOVE_REJECTED);
-                msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
             }
         } else {
             sprintf(gameMessage->command, "%d", GAME_MOVE_REJECTED);
-            msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
+            msgsnd(currentPlayer->queueId, gameMessage, GAME_MESSAGE_SIZE, 0);
         }
     }
 
@@ -620,7 +620,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
         if (chatProcess == 0) {
             while (true) {
                 printf("listen for a chat message...\n");
-                result = msgrcv(internalChatQueue, &internalChatMessage, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
+                result = msgrcv(internalChatQueue, &internalChatMessage, INITIAL_MESSAGE_SIZE,
                        CHAT_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
                     perror("internal queue error:");
@@ -636,7 +636,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
             lobbyChecker(&playersMem, &lobby);
         } else {
             while (true) {
-                result = msgrcv(mainQueue, &initialMessage, MAX_PID_SIZE + USER_NAME_LENGTH, GAME_CLIENT_TO_SERVER, 0);
+                result = msgrcv(mainQueue, &initialMessage, INITIAL_MESSAGE_SIZE, GAME_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
                     perror("error while connecting client");
                     sleep(1);
@@ -650,7 +650,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                         initialMessage.type = GAME_SERVER_TO_CLIENT;
                         initialMessage.pid = serverPid;
                         printf("sending to client pid = %d\n", initialMessage.pid);
-                        result = msgsnd(clientServerQueue, &initialMessage, MAX_PID_SIZE + USER_NAME_LENGTH, 0);
+                        result = msgsnd(clientServerQueue, &initialMessage, INITIAL_MESSAGE_SIZE, 0);
                         printf("sent to user %d server pid %d\n", clientPid, serverPid);
                         if (result == -1) {
                             perror("error while sending message to client");
@@ -658,11 +658,10 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                         } else {
                             char *user = initialMessage.userName;
                             if (fork() == 0) {
-                                ChatMessage msg;
+                                ChatMessage chatMessage;
                                 while (true) {
                                     printf("user quque %d\n", clientServerQueue);
-                                    int res = msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH,
-                                                     CHAT_CLIENT_TO_SERVER, 0);
+                                    int res = msgrcv(clientServerQueue, &chatMessage, CHAT_MESSAGE_SIZE, CHAT_CLIENT_TO_SERVER, 0);
                                     if (res == -1 || kill(clientPid, 0) == -1) {
                                         perror("An error occured while trying to receive chat message");
                                         sleep(1);
@@ -670,18 +669,18 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                                         return;
                                     } else {
                                         printf("message came\n");
-                                        msg.type = CHAT_CLIENT_TO_SERVER;
-                                        msgsnd(internalChatQueue, &msg, MESSAGE_CONTENT_SIZE + USER_NAME_LENGTH, 0);
+                                        chatMessage.type = CHAT_CLIENT_TO_SERVER;
+                                        msgsnd(internalChatQueue, &chatMessage, CHAT_MESSAGE_SIZE, 0);
                                     }
                                 }
                             } else if (fork() == 0) {
                                 while (true) {
                                     GameMessage gameMessage;
                                     prepareLobbyInitialMessage(&lobby, &gameMessage);
-                                    msgsnd(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, 0);
+                                    msgsnd(clientServerQueue, &gameMessage, GAME_MESSAGE_SIZE, 0);
                                     bool playerWasAddedToRoom = false;
                                     do {
-                                        result = msgrcv(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE,
+                                        result = msgrcv(clientServerQueue, &gameMessage, GAME_MESSAGE_SIZE,
                                                         GAME_CLIENT_TO_SERVER, 0);
                                         if (result == -1) {
                                             return;
@@ -709,7 +708,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
                                         };
                                     } while (!playerWasAddedToRoom);
                                     printf("client process ended!\n");
-                                    result = msgrcv(clientServerQueue, &gameMessage, MESSAGE_CONTENT_SIZE, GAME_WANT_TO_CONTINUE, 0);
+                                    result = msgrcv(clientServerQueue, &gameMessage, GAME_MESSAGE_SIZE, GAME_WANT_TO_CONTINUE, 0);
                                     if (result == -1) {
                                         printf("%sPlayer %s left the game %s\n", ANSI_COLOR_BLUE, user, ANSI_COLOR_RESET);
                                         exit(0);
@@ -765,6 +764,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
 
 int main(int argc, char const *argv[]) {
     int serverPid = getpid();
+    printf("%d %d %d\n", GAME_MESSAGE_SIZE, CHAT_MESSAGE_SIZE, INITIAL_MESSAGE_SIZE);
     PlayersMemory players = preparePlayersMemory();
     Lobby lobby = prepareLobby();
     initializeSemaphore();

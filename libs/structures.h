@@ -58,6 +58,7 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 
+
 typedef struct GameMatrix {
     int sem;
     int memKey;
@@ -105,5 +106,8 @@ typedef struct InitialMessage {
     char userName[USER_NAME_LENGTH];
 } InitialMessage;
 
+static const size_t GAME_MESSAGE_SIZE = sizeof(GameMessage) - sizeof(long);
+static const size_t CHAT_MESSAGE_SIZE = sizeof(ChatMessage) - sizeof(long);
+static const size_t INITIAL_MESSAGE_SIZE = sizeof(InitialMessage) - sizeof(long);
 
 #endif //CLIENT_STRUCTURES_H
