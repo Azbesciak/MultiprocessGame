@@ -102,7 +102,7 @@ int main(int argc, char const *argv[]) {
             int playerIndex = -1;
             printf("%sPlease, select the room%s\n", ANSI_COLOR_BLUE, ANSI_COLOR_RESET);
             msgrcv(clientServerQueue, &msg, MESSAGE_CONTENT_SIZE, GAME_SERVER_TO_CLIENT, 0);
-            printf("room has come\n");
+            printf("room came\n");
             printf("%s\n", msg.command);
             while (response != 2) {
                 if (response != 1) {

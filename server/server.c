@@ -100,7 +100,7 @@ void removePlayer(int pid, PlayersMemory *memory, Lobby *lobby) {
     for (int i = 0; i < MAX_PLAYER_AMOUNT; i++) {
         if (memory->players[i].pid == pid) {
             Player *player = &memory->players[i];
-            printf("Player %s was successfully removed from list\n", player->name);
+            printf("Player %s was successfully removed from the players list\n", player->name);
             msgctl(player->queueId, IPC_RMID, 0);
             player->pid = -1;
             memory->players[i].state = PLAYER_DISCONNECTED;
@@ -477,6 +477,15 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
             winnerId = - currentPlayer->pid;
             break;
         } else {
+            int otherPlayerIndex = (currentPlayerIndex +1 ) % 2;
+            semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
+            int otherPlayerPid = lobby->rooms[roomId].players[otherPlayerIndex].pid;
+            semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
+            if (kill(otherPlayerPid, 0) == -1) {
+                finish = true;
+                winnerId = -otherPlayerPid;
+                break;
+            }
             printf("player %d move %s\n", currentPlayerIndex, gameMessage->command);
         }
         gameMessage->type = GAME_SERVER_TO_CLIENT;
@@ -514,8 +523,8 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
                            gameMessage->command, currentPlayer->pid, currentPlayer->name, ANSI_COLOR_RESET);
                 msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
                 currentPlayerIndex = (currentPlayerIndex + 1) % 2;
-                semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
 
+                semaphoreOperation(lobby->sem, SEMAPHORE_DROP);
                 currentPlayer = &lobby->rooms[roomId].players[currentPlayerIndex];
                 semaphoreOperation(lobby->sem, SEMAPHORE_RAISE);
                 sprintf(gameMessage->command, "%d", GAME_YOUR_TOUR);
@@ -531,8 +540,8 @@ void maintainGame(Lobby *lobby, PlayersMemory *playersMemory, GameMessage *gameM
             sprintf(gameMessage->command, "%d", GAME_MOVE_REJECTED);
             msgsnd(currentPlayer->queueId, gameMessage, MESSAGE_CONTENT_SIZE, 0);
         }
-
     }
+
     shmctl(matrix.memKey, IPC_RMID, 0);
     semctl(matrix.sem, IPC_RMID, 0);
     printf("game normally finished\n");
