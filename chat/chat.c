@@ -27,12 +27,12 @@ int main(int argc, char const *argv[]) {
         while (true) {
             scanf("%[s\n]", chatMessage.content);
             fgets(chatMessage.content, sizeof(chatMessage.content), stdin);
-            msgsnd(clientServerQueue, &chatMessage, GAME_MESSAGE_SIZE, 0);
+            msgsnd(clientServerQueue, &chatMessage, CHAT_MESSAGE_SIZE, 0);
         }
     } else {
         int result;
         while (true) {
-            result = msgrcv(clientServerQueue, &chatMessage, GAME_MESSAGE_SIZE, CHAT_SERVER_TO_CLIENT, 0);
+            result = msgrcv(clientServerQueue, &chatMessage, CHAT_MESSAGE_SIZE, CHAT_SERVER_TO_CLIENT, 0);
             if (result == -1) {
                 printf("server connection lost!\n");
                 msgctl(clientServerQueue, IPC_RMID, 0);

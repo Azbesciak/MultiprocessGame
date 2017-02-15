@@ -620,7 +620,7 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
         if (chatProcess == 0) {
             while (true) {
                 printf("listen for a chat message...\n");
-                result = msgrcv(internalChatQueue, &internalChatMessage, INITIAL_MESSAGE_SIZE,
+                result = msgrcv(internalChatQueue, &internalChatMessage, CHAT_MESSAGE_SIZE,
                        CHAT_CLIENT_TO_SERVER, 0);
                 if (result == -1) {
                     perror("internal queue error:");
@@ -764,7 +764,6 @@ void maintainPlayersLifecycle(int serverPid, PlayersMemory playersMem, Lobby lob
 
 int main(int argc, char const *argv[]) {
     int serverPid = getpid();
-    printf("%d %d %d\n", GAME_MESSAGE_SIZE, CHAT_MESSAGE_SIZE, INITIAL_MESSAGE_SIZE);
     PlayersMemory players = preparePlayersMemory();
     Lobby lobby = prepareLobby();
     initializeSemaphore();
